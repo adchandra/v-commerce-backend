@@ -1,17 +1,12 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import OpenAI from "openai";
+import axios from "axios";
 
 dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-// Inisialisasi client OpenAI versi 4
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 const basePrompt = `
 Kamu adalah NPC penjual oleh-oleh khas Yogyakarta di dunia virtual. Tugasmu adalah menjelaskan produk oleh-oleh dengan sopan dan ramah kepada pengunjung.
@@ -37,18 +32,31 @@ app.post("/api/ask-npc", async (req, res) => {
   }
 
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        { role: "system", content: basePrompt },
-        { role: "user", content: message }
-      ],
-    });
+    const response = await axios.post(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        model: "openai/gpt-3.5-turbo", // Bisa ganti ke gpt-4, anthropic/claude-3, dll
+        messages: [
+          { role: "system", content: basePrompt },
+          { role: "user", content: message },
+        ],
+      },
+      {
+        headers: {
+          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
 
-    const reply = response.choices[0].message.content.trim();
+    const reply = response.data.choices[0].message.content.trim();
     res.json({ response: reply });
   } catch (err) {
-    res.status(500).json({ error: "Terjadi kesalahan.", detail: err.message });
+    console.error(err.response?.data || err.message);
+    res.status(500).json({
+      error: "Terjadi kesalahan.",
+      detail: err.response?.data || err.message
+    });
   }
 });
 
