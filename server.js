@@ -1,17 +1,17 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { Configuration, OpenAIApi } from "openai";
+import OpenAI from "openai";
 
 dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const configuration = new Configuration({
+// Inisialisasi client OpenAI versi 4
+const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
-const openai = new OpenAIApi(configuration);
 
 const basePrompt = `
 Kamu adalah NPC penjual oleh-oleh khas Yogyakarta di dunia virtual. Tugasmu adalah menjelaskan produk oleh-oleh dengan sopan dan ramah kepada pengunjung.
@@ -37,7 +37,7 @@ app.post("/api/ask-npc", async (req, res) => {
   }
 
   try {
-    const response = await openai.createChatCompletion({
+    const response = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
         { role: "system", content: basePrompt },
@@ -45,7 +45,7 @@ app.post("/api/ask-npc", async (req, res) => {
       ],
     });
 
-    const reply = response.data.choices[0].message.content.trim();
+    const reply = response.choices[0].message.content.trim();
     res.json({ response: reply });
   } catch (err) {
     res.status(500).json({ error: "Terjadi kesalahan.", detail: err.message });
