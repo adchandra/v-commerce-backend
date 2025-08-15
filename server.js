@@ -35,7 +35,7 @@ app.post("/api/ask-npc", async (req, res) => {
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "openai/gpt-4", // Bisa ganti ke gpt-4, anthropic/claude-3, dll
+        model: "openai/gpt-4o-mini", // ganti model yang aktif
         messages: [
           { role: "system", content: basePrompt },
           { role: "user", content: message },
@@ -43,19 +43,35 @@ app.post("/api/ask-npc", async (req, res) => {
       },
       {
         headers: {
-          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json"
-        }
+          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          // Dua header ini PENTING untuk produksi:
+          "HTTP-Referer":
+            process.env.APP_PUBLIC_URL ||
+            "https://v-commerce-frontend.example.com",
+          "X-Title": "V-Commerce NPC",
+        },
+        timeout: 30000,
       }
     );
 
-    const reply = response.data.choices[0].message.content.trim();
+    // Robust check agar tidak undefined
+    const choice = response.data?.choices?.[0];
+    const reply = choice?.message?.content?.trim();
+    if (!reply) {
+      console.error("OpenRouter response tanpa content:", response.data);
+      return res.status(502).json({
+        error: "Jawaban kosong dari model.",
+        detail: response.data,
+      });
+    }
+
     res.json({ response: reply });
   } catch (err) {
     console.error(err.response?.data || err.message);
     res.status(500).json({
       error: "Terjadi kesalahan.",
-      detail: err.response?.data || err.message
+      detail: err.response?.data || err.message,
     });
   }
 });
