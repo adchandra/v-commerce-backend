@@ -15,11 +15,12 @@ import axios from "axios";
 import path from "path";
 import { fileURLToPath } from "url";
 
+dotenv.config();
+
 const PORT = process.env.PORT || 3002;
 const BASE_URL = process.env.ASSET_BASE_URL || `http://localhost:${PORT}`;
 
 // Setup dasar
-dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
