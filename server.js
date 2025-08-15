@@ -15,28 +15,14 @@ import axios from "axios";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// === Penting: load .env sebelum membaca process.env ===
-dotenv.config();
-
 const PORT = process.env.PORT || 3002;
 const BASE_URL = process.env.ASSET_BASE_URL || `http://localhost:${PORT}`;
 
+// Setup dasar
+dotenv.config();
 const app = express();
-
-// (Opsional) batasi CORS ke domain FE
-const allowedOrigins = [process.env.APP_PUBLIC_URL, BASE_URL].filter(Boolean);
-app.use(
-  cors({
-    origin(origin, cb) {
-      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-      return cb(new Error("Origin tidak diizinkan oleh CORS"), false);
-    },
-    credentials: false,
-  })
-);
-
-// Batas ukuran body agar aman
-app.use(express.json({ limit: "512kb" }));
+app.use(cors());
+app.use(express.json());
 
 // Konfigurasi static files untuk gambar
 const __filename = fileURLToPath(import.meta.url);
@@ -45,7 +31,9 @@ const __dirname = path.dirname(__filename);
 app.use(express.static(path.join(__dirname, "public")));
 
 // =====================================================
-// 1) KATALOG PRODUK
+// 1) KATALOG PRODUK (edit sesuai kebutuhanmu)
+// - imageUrl bisa berupa jalur statis (mis. /images/bakpia.jpg)
+// - buyLinks: daftar situs tempat beli (tokomu sendiri, marketplace, dsb.)
 // =====================================================
 const PRODUCT_CATALOG = [
   {
@@ -185,6 +173,9 @@ const PRODUCT_CATALOG = [
 
 // =====================================================
 // 2) BASE PROMPT + INSTRUKSI OUTPUT
+// - Menetapkan gaya bicara
+// - Memaksa AI untuk menyertakan gambar dan link ketika relevan
+// - Membatasi topik hanya pada produk katalog
 // =====================================================
 const basePrompt = `
 Kamu adalah NPC penjual oleh-oleh Yogyakarta.
@@ -206,12 +197,15 @@ Katalog:
 ${JSON.stringify(PRODUCT_CATALOG, null, 2)}
 `;
 
+
+
 // Utility: buat pesan sistem + katalog agar model tahu data gambar/link
 function buildMessages(userMessage) {
   return [
     { role: "system", content: basePrompt },
     {
       role: "system",
+      // Katalog diberikan sebagai konteks yang boleh dirujuk model
       content:
         "KATALOG PRODUK (JSON):\n" + JSON.stringify(PRODUCT_CATALOG, null, 2),
     },
@@ -219,31 +213,16 @@ function buildMessages(userMessage) {
   ];
 }
 
-// Helper: normalkan URL gambar relatif di markdown -> absolut BASE_URL
-function fixRelativeImages(md) {
-  if (!md || typeof md !== "string") return md;
-
-  // ![alt](/images/xxx)
-  md = md.replace(
-    /!\[([^\]]*)\]\(\s*(\/images\/[^)\s]+)\s*\)/gi,
-    (_m, alt, p) => `![${alt}](${BASE_URL}${p})`
-  );
-
-  // ![alt](images/xxx) atau ![alt](./images/xxx)
-  md = md.replace(
-    /!\[([^\]]*)\]\(\s*(?:\.?\/)?images\/([^)#\s]+)\s*\)/gi,
-    (_m, alt, file) => `![${alt}](${BASE_URL}/images/${file})`
-  );
-
-  return md;
-}
-
 // =====================================================
 // 3) ENDPOINT TANYA-JAWAB
+// - Memanggil OpenRouter Chat Completions
+// - Mengirim basePrompt + katalog ke model
+// - Mengembalikan teks balasan model (dengan gambar & link)
 // =====================================================
 app.post("/api/ask-npc", async (req, res) => {
   const { message } = req.body;
 
+  // Validasi input
   if (!message || typeof message !== "string" || !message.trim()) {
     return res.status(400).json({ error: "Pesan kosong tidak diizinkan." });
   }
@@ -254,6 +233,7 @@ app.post("/api/ask-npc", async (req, res) => {
       {
         model: "openai/gpt-4o-mini", // ganti jika perlu
         messages: buildMessages(message),
+        // Sedikit pengaturan agar hasil lebih stabil
         temperature: 0.6,
         top_p: 0.9,
       },
@@ -261,6 +241,7 @@ app.post("/api/ask-npc", async (req, res) => {
         headers: {
           Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
           "Content-Type": "application/json",
+          // Dua header ini PENTING untuk produksi:
           "HTTP-Referer":
             process.env.APP_PUBLIC_URL ||
             "https://v-commerce-frontend.example.com",
@@ -270,6 +251,7 @@ app.post("/api/ask-npc", async (req, res) => {
       }
     );
 
+    // Defensive: pastikan ada output
     const choice = response.data?.choices?.[0];
     const reply = choice?.message?.content?.trim();
     if (!reply) {
@@ -280,14 +262,12 @@ app.post("/api/ask-npc", async (req, res) => {
       });
     }
 
-    // Cegah skema berbahaya
-    let sanitizedReply = reply.replace(
+    // (Opsional) Filter minimal: cegah URL non-HTTP/HTTPS
+    // Catatan: ini hanya contoh sederhana; sesuaikan kebutuhan keamananmu.
+    const sanitizedReply = reply.replace(
       /\]\((javascript:|data:)/gi,
       "](#blocked)"
     );
-
-    // Jadikan URL gambar relatif -> absolut ke BASE_URL
-    sanitizedReply = fixRelativeImages(sanitizedReply);
 
     res.json({ response: sanitizedReply });
   } catch (err) {
